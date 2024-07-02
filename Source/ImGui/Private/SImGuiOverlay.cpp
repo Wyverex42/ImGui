@@ -311,14 +311,22 @@ int32 SImGuiOverlay::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGe
 			TArray IndicesSlice(Indices.GetData() + DrawCmd.IdxOffset, DrawCmd.ElemCount);
 
 #if WITH_ENGINE
-			UTexture* Texture = DrawCmd.GetTexID();
-			if (TextureBrush.GetResourceObject() != Texture)
+			UObject* Resource = DrawCmd.GetTexID();
+			if (TextureBrush.GetResourceObject() != Resource)
 			{
-				TextureBrush.SetResourceObject(Texture);
-				if (IsValid(Texture))
+				TextureBrush.SetResourceObject(Resource);
+				if (IsValid(Resource))
 				{
-					TextureBrush.ImageSize.X = Texture->GetSurfaceWidth();
-					TextureBrush.ImageSize.Y = Texture->GetSurfaceHeight();
+					if (UTexture2D* Texture = Cast<UTexture2D>(Resource))
+					{
+						TextureBrush.ImageSize.X = Texture->GetSizeX();
+						TextureBrush.ImageSize.Y = Texture->GetSizeY();						
+					}
+					else
+					{
+						TextureBrush.ImageSize.X = 0;
+						TextureBrush.ImageSize.Y = 0;
+					}
 					TextureBrush.ImageType = ESlateBrushImageType::FullColor;
 					TextureBrush.DrawAs = ESlateBrushDrawType::Image;
 				}
