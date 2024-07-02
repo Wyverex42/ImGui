@@ -260,6 +260,7 @@ private:
 
 void SImGuiOverlay::Construct(const FArguments& Args)
 {
+	UsedCommands.Reserve(300);
 	SetVisibility(EVisibility::HitTestInvisible);
 
 	Context = Args._Context.IsValid() ? Args._Context : FImGuiContext::Create();
@@ -295,7 +296,17 @@ int32 SImGuiOverlay::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGe
 		for (int32 BufferIdx = 0; BufferIdx < Vertices.Num(); ++BufferIdx)
 		{
 			const ImDrawVert& Vtx = DrawList.VtxBuffer.Data[BufferIdx];
-			Vertices[BufferIdx] = FSlateVertex::Make<ESlateVertexRounding::Disabled>(Transform, Vtx.pos, Vtx.uv, FVector2f::UnitVector, ImGui::ConvertColor(Vtx.col));
+			// Instead of calling FSlateVertex::Make() which creates a new vertex which has to be copied,
+			// write all data directly, which saves some time for large arrays
+			FSlateVertex& Target = Vertices[BufferIdx];
+			Target.TexCoords[0] = Vtx.uv.x;
+			Target.TexCoords[1] = Vtx.uv.y;
+			Target.TexCoords[2] = 1;
+			Target.TexCoords[3] = 1;
+			Target.Position = TransformPoint(Transform, FVector2f(Vtx.pos));
+			// Ideally, make ImGui::ConvertColor inline instead
+			Target.Color = FColor((Vtx.col >> IM_COL32_R_SHIFT) & 0xFF,(Vtx.col >> IM_COL32_G_SHIFT) & 0xFF,
+				(Vtx.col >> IM_COL32_B_SHIFT) & 0xFF,(Vtx.col >> IM_COL32_A_SHIFT) & 0xFF);
 		}
 
 		TArray<SlateIndex> Indices;
@@ -305,10 +316,43 @@ int32 SImGuiOverlay::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGe
 			Indices[BufferIdx] = DrawList.IdxBuffer.Data[BufferIdx];
 		}
 
-		for (const ImDrawCmd& DrawCmd : DrawList.CmdBuffer)
+		UsedCommands.Reset();		
+		UsedCommands.AddZeroed(DrawList.CmdBuffer.Size);
+
+		for (int i = 0; i < DrawList.CmdBuffer.Size; ++i)
 		{
+			if (UsedCommands[i])
+			{
+				continue;
+			}
+			
+			const ImDrawCmd& DrawCmd = DrawList.CmdBuffer[i];
 			TArray VerticesSlice(Vertices.GetData() + DrawCmd.VtxOffset, Vertices.Num() - DrawCmd.VtxOffset);
-			TArray IndicesSlice(Indices.GetData() + DrawCmd.IdxOffset, DrawCmd.ElemCount);
+			TArray<SlateIndex> IndicesSlice;
+			IndicesSlice.Reserve(Indices.Num());
+			IndicesSlice.Append(Indices.GetData() + DrawCmd.IdxOffset, DrawCmd.ElemCount);
+
+			// Now look ahead if there are other commands in the queue with the same parameters and add their indices to this draw call
+			for (int k = i + 1; k < DrawList.CmdBuffer.Size; ++k)
+			{
+				if (UsedCommands[k])
+				{
+					continue;
+				}
+			
+				const ImDrawCmd& OtherCmd = DrawList.CmdBuffer[k];
+				if (DrawCmd.TextureId == OtherCmd.TextureId &&
+					DrawCmd.UserCallback == OtherCmd.UserCallback &&
+					DrawCmd.VtxOffset == OtherCmd.VtxOffset &&
+					DrawCmd.ClipRect.x == OtherCmd.ClipRect.x &&
+					DrawCmd.ClipRect.y == OtherCmd.ClipRect.y &&
+					DrawCmd.ClipRect.z == OtherCmd.ClipRect.z &&
+					DrawCmd.ClipRect.w == OtherCmd.ClipRect.w)
+				{
+					IndicesSlice.Append(Indices.GetData() + OtherCmd.IdxOffset, OtherCmd.ElemCount);
+					UsedCommands[k] = true;
+				}
+			}
 
 #if WITH_ENGINE
 			UTexture* Texture = DrawCmd.GetTexID();
@@ -349,6 +393,8 @@ int32 SImGuiOverlay::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGe
 			ClipRect = TransformRect(Transform, ClipRect);
 
 			OutDrawElements.PushClip(FSlateClippingZone(ClipRect));
+			// There's an unnecessary copy of the vertex and index array happening here,
+			// which can be avoided by pulling in https://github.com/EpicGames/UnrealEngine/pull/12023 and moving those arrays instead
 			FSlateDrawElement::MakeCustomVerts(OutDrawElements, LayerId, TextureBrush.GetRenderingResource(), VerticesSlice, IndicesSlice, nullptr, 0, 0);
 			OutDrawElements.PopClip();
 		}

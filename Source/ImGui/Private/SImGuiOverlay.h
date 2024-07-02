@@ -59,4 +59,5 @@ private:
 	TSharedPtr<FImGuiContext> Context = nullptr;
 	TSharedPtr<IInputProcessor> InputProcessor = nullptr;
 	FImGuiDrawData DrawData;
+	mutable TArray<bool> UsedCommands;
 };
