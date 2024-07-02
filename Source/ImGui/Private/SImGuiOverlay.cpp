@@ -319,8 +319,8 @@ int32 SImGuiOverlay::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGe
 				{
 					if (UTexture2D* Texture = Cast<UTexture2D>(Resource))
 					{
-						TextureBrush.ImageSize.X = Texture->GetSizeX();
-						TextureBrush.ImageSize.Y = Texture->GetSizeY();						
+						TextureBrush.ImageSize.X = Texture->GetSurfaceWidth();
+						TextureBrush.ImageSize.Y = Texture->GetSurfaceHeight();
 					}
 					else
 					{
